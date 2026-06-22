@@ -3,6 +3,7 @@ package ca
 import (
 	"bytes"
 	"encoding/pem"
+	"errors"
 	"time"
 
 	"crypto/ecdsa"
@@ -112,6 +113,9 @@ func (ca *CA) IssueCertificate(spiffeID string, ttl time.Duration) (certPEM []by
 	}
 
 	//parse SpiffeID into url
+	if spiffeID == "" {
+		return nil, nil, errors.New("spiffeID cannot be empty")
+	}
 	parsed, err := url.Parse(spiffeID)
 	if err != nil {
 		return nil, nil, err
