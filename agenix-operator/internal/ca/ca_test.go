@@ -148,6 +148,10 @@ func TestIssueCertificate_DifferentIDs(t *testing.T) {
 	if sameKey {
 		t.Error("expected different key pairs, but public keys are identical")
 	}
+
+	if leafCert1.URIs[0].String() == leafCert2.URIs[0].String() {
+		t.Error("expected different SPIFFE IDs")
+	}
 }
 
 func TestCertificateChainValidation(t *testing.T) {
