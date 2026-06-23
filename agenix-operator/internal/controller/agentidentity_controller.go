@@ -18,23 +18,21 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	meta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	agentv1alpha1 "github.com/Bobbins228/Agenix/agenix-operator/api/v1alpha1"
 	"github.com/Bobbins228/Agenix/agenix-operator/internal/ca"
-
-	"fmt"
-	corev1 "k8s.io/api/core/v1"
-
-	appsv1 "k8s.io/api/apps/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	meta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 // AgentIdentityReconciler reconciles a AgentIdentity object
@@ -47,8 +45,8 @@ type AgentIdentityReconciler struct {
 // +kubebuilder:rbac:groups=agent.agenix.io,resources=agentidentities,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=agent.agenix.io,resources=agentidentities/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=agent.agenix.io,resources=agentidentities/finalizers,verbs=update
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -75,7 +73,7 @@ func (r *AgentIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	deployment := &appsv1.Deployment{}
 	deploymentName := types.NamespacedName{
 		Name:      identity.Spec.TargetRef.Name,
-		Namespace: req.NamespacedName.Namespace,
+		Namespace: req.Namespace,
 	}
 	if err := r.Get(ctx, deploymentName, deployment); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -84,7 +82,7 @@ func (r *AgentIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				Type:               "TargetFound",
 				Status:             metav1.ConditionFalse,
 				Reason:             "DeploymentNotFound",
-				Message:            fmt.Sprintf("Deployment %q not found in namespace %q", identity.Spec.TargetRef.Name, req.NamespacedName.Namespace),
+				Message:            fmt.Sprintf("Deployment %q not found in namespace %q", identity.Spec.TargetRef.Name, req.Namespace),
 				LastTransitionTime: metav1.Now(),
 			})
 			if err := r.Status().Update(ctx, identity); err != nil {
@@ -95,7 +93,6 @@ func (r *AgentIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	
 	identity.Status.Phase = "Pending"
 	meta.SetStatusCondition(&identity.Status.Conditions, metav1.Condition{
 		Type:               "TargetFound",

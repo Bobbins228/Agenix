@@ -34,27 +34,34 @@ import (
 
 var _ = Describe("AgentIdentity Controller", func() {
 	Context("When reconciling a resource", func() {
-		const resourceNamespace = "default"
+		const (
+			resourceNamespace = "default"
+			testApp           = "test"
+			foundName         = "test-found"
+			foundDeployment   = "found-deployment"
+			missingName       = "test-missing"
+			missingDeployment = "does-not-exist"
+		)
 
 		ctx := context.Background()
 
 		It("should set Pending when Deployment exists", func() {
 			deployment := &appsv1.Deployment{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "found-deployment",
+					Name:      foundDeployment,
 					Namespace: resourceNamespace,
 				},
 				Spec: appsv1.DeploymentSpec{
 					Selector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{"app": "test"},
+						MatchLabels: map[string]string{"app": testApp},
 					},
 					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
-							Labels: map[string]string{"app": "test"},
+							Labels: map[string]string{"app": testApp},
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
-								{Name: "test", Image: "busybox"},
+								{Name: testApp, Image: "busybox"},
 							},
 						},
 					},
@@ -64,12 +71,12 @@ var _ = Describe("AgentIdentity Controller", func() {
 
 			identity := &agentv1alpha1.AgentIdentity{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-found",
+					Name:      foundName,
 					Namespace: resourceNamespace,
 				},
 				Spec: agentv1alpha1.AgentIdentitySpec{
 					TargetRef: agentv1alpha1.TargetRef{
-						Name: "found-deployment",
+						Name: foundDeployment,
 					},
 				},
 			}
@@ -85,7 +92,7 @@ var _ = Describe("AgentIdentity Controller", func() {
 			}
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Name:      "test-found",
+					Name:      foundName,
 					Namespace: resourceNamespace,
 				},
 			})
@@ -93,7 +100,7 @@ var _ = Describe("AgentIdentity Controller", func() {
 
 			updated := &agentv1alpha1.AgentIdentity{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
-				Name:      "test-found",
+				Name:      foundName,
 				Namespace: resourceNamespace,
 			}, updated)).To(Succeed())
 			Expect(updated.Status.Phase).To(Equal("Pending"))
@@ -108,12 +115,12 @@ var _ = Describe("AgentIdentity Controller", func() {
 		It("should set Error when Deployment is missing", func() {
 			identity := &agentv1alpha1.AgentIdentity{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-missing",
+					Name:      missingName,
 					Namespace: resourceNamespace,
 				},
 				Spec: agentv1alpha1.AgentIdentitySpec{
 					TargetRef: agentv1alpha1.TargetRef{
-						Name: "does-not-exist",
+						Name: missingDeployment,
 					},
 				},
 			}
@@ -129,7 +136,7 @@ var _ = Describe("AgentIdentity Controller", func() {
 			}
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Name:      "test-missing",
+					Name:      missingName,
 					Namespace: resourceNamespace,
 				},
 			})
@@ -137,7 +144,7 @@ var _ = Describe("AgentIdentity Controller", func() {
 
 			updated := &agentv1alpha1.AgentIdentity{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
-				Name:      "test-missing",
+				Name:      missingName,
 				Namespace: resourceNamespace,
 			}, updated)).To(Succeed())
 			Expect(updated.Status.Phase).To(Equal("Error"))
