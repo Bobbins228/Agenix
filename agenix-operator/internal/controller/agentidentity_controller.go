@@ -26,6 +26,8 @@ import (
 
 	agentv1alpha1 "github.com/Bobbins228/Agenix/agenix-operator/api/v1alpha1"
 	"github.com/Bobbins228/Agenix/agenix-operator/internal/ca"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // AgentIdentityReconciler reconciles a AgentIdentity object
@@ -62,6 +64,7 @@ func (r *AgentIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 func (r *AgentIdentityReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&agentv1alpha1.AgentIdentity{}).
+		Owns(&corev1.Secret{}).
 		Named("agentidentity").
 		Complete(r)
 }
