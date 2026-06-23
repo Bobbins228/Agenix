@@ -5,10 +5,14 @@ import (
 )
 
 // constants for testing
-const trustDomainExample = "example.org"
+const (
+	trustDomainExample    = "example.org"
+	namespaceDefault      = "default"
+	serviceAccountExample = "my-agent"
+)
 
 func TestGenerateSPIFFEID(t *testing.T) {
-	id, err := GenerateSPIFFEID(trustDomainExample, "default", "weather-agent")
+	id, err := GenerateSPIFFEID(trustDomainExample, namespaceDefault, "weather-agent")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -26,9 +30,13 @@ func TestGenerateSPIFFEID_EmptyInputs(t *testing.T) {
 		namespace      string
 		serviceAccount string
 	}{
-		{"empty trust domain", "", "default", "my-agent"},
-		{"empty namespace", trustDomainExample, "", "my-agent"},
-		{"empty service account", trustDomainExample, "default", ""},
+		{"empty trust domain", "", namespaceDefault, serviceAccountExample},
+		{"empty namespace", trustDomainExample, "", serviceAccountExample},
+		{"empty service account", trustDomainExample, namespaceDefault, ""},
+		{"whitespace-only namespace", trustDomainExample, "   ", serviceAccountExample},
+		{"whitespace-only service account", trustDomainExample, namespaceDefault, "   "},
+		{"namespace with slash", trustDomainExample, "ns/bad", serviceAccountExample},
+		{"service account with slash", trustDomainExample, namespaceDefault, "sa/bad"},
 	}
 
 	for _, testCase := range tests {

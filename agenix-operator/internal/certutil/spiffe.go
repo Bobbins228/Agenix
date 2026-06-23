@@ -12,8 +12,9 @@ var validTrustDomain = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
 
 func GenerateSPIFFEID(trustDomain, namespace, serviceAccount string) (string, error) {
 	trustDomain = strings.TrimSpace(trustDomain)
+	namespace = strings.TrimSpace(namespace)
+	serviceAccount = strings.TrimSpace(serviceAccount)
 
-	// checking whether the values are not empty
 	if trustDomain == "" {
 		return "", fmt.Errorf("trust domain cannot be empty")
 	}
@@ -22,6 +23,13 @@ func GenerateSPIFFEID(trustDomain, namespace, serviceAccount string) (string, er
 	}
 	if serviceAccount == "" {
 		return "", fmt.Errorf("service account cannot be empty")
+	}
+
+	if strings.Contains(namespace, "/") {
+		return "", fmt.Errorf("invalid namespace %q: must not contain '/'", namespace)
+	}
+	if strings.Contains(serviceAccount, "/") {
+		return "", fmt.Errorf("invalid service account %q: must not contain '/'", serviceAccount)
 	}
 
 	// validating the trust domain follows SPIFFE spec
