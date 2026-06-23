@@ -95,7 +95,7 @@ func (r *AgentIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	// Part 3: Deployment found
+	
 	identity.Status.Phase = "Pending"
 	meta.SetStatusCondition(&identity.Status.Conditions, metav1.Condition{
 		Type:               "TargetFound",
