@@ -27,7 +27,14 @@ import (
 	agentv1alpha1 "github.com/Bobbins228/Agenix/agenix-operator/api/v1alpha1"
 	"github.com/Bobbins228/Agenix/agenix-operator/internal/ca"
 
+	"fmt"
 	corev1 "k8s.io/api/core/v1"
+
+	appsv1 "k8s.io/api/apps/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	meta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // AgentIdentityReconciler reconciles a AgentIdentity object
@@ -53,9 +60,56 @@ type AgentIdentityReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.24.1/pkg/reconcile
 func (r *AgentIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	// Fetch the AgentIdentity CR
+	identity := &agentv1alpha1.AgentIdentity{}
+	if err := r.Get(ctx, req.NamespacedName, identity); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	// Check if the target Deployment exists
+	deployment := &appsv1.Deployment{}
+	deploymentName := types.NamespacedName{
+		Name:      identity.Spec.TargetRef.Name,
+		Namespace: req.NamespacedName.Namespace,
+	}
+	if err := r.Get(ctx, deploymentName, deployment); err != nil {
+		if apierrors.IsNotFound(err) {
+			identity.Status.Phase = "Error"
+			meta.SetStatusCondition(&identity.Status.Conditions, metav1.Condition{
+				Type:               "TargetFound",
+				Status:             metav1.ConditionFalse,
+				Reason:             "DeploymentNotFound",
+				Message:            fmt.Sprintf("Deployment %q not found in namespace %q", identity.Spec.TargetRef.Name, req.NamespacedName.Namespace),
+				LastTransitionTime: metav1.Now(),
+			})
+			if err := r.Status().Update(ctx, identity); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	// Part 3: Deployment found
+	identity.Status.Phase = "Pending"
+	meta.SetStatusCondition(&identity.Status.Conditions, metav1.Condition{
+		Type:               "TargetFound",
+		Status:             metav1.ConditionTrue,
+		Reason:             "DeploymentFound",
+		Message:            fmt.Sprintf("Deployment %q found", identity.Spec.TargetRef.Name),
+		LastTransitionTime: metav1.Now(),
+	})
+	if err := r.Status().Update(ctx, identity); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	log.Info("Target Deployment found", "deployment", identity.Spec.TargetRef.Name, "serviceAccount",
+		deployment.Spec.Template.Spec.ServiceAccountName)
 
 	return ctrl.Result{}, nil
 }
