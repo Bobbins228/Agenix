@@ -25,12 +25,14 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	agentv1alpha1 "github.com/Bobbins228/Agenix/agenix-operator/api/v1alpha1"
+	"github.com/Bobbins228/Agenix/agenix-operator/internal/ca"
 )
 
 // AgentIdentityReconciler reconciles a AgentIdentity object
 type AgentIdentityReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	CA     *ca.CA
 }
 
 // +kubebuilder:rbac:groups=agent.agenix.io,resources=agentidentities,verbs=get;list;watch;create;update;patch;delete
