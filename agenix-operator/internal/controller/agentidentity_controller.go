@@ -40,6 +40,8 @@ import (
 	"github.com/Bobbins228/Agenix/agenix-operator/internal/certutil"
 )
 
+const conditionCertificateReady = "CertificateReady"
+
 // AgentIdentityReconciler reconciles a AgentIdentity object
 type AgentIdentityReconciler struct {
 	client.Client
@@ -139,8 +141,32 @@ func (r *AgentIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if block != nil {
 			existingCert, parseErr := x509.ParseCertificate(block.Bytes)
 			if parseErr == nil && time.Now().Before(existingCert.NotAfter) {
+
 				log.Info("Certificate still valid, skipping regeneration", "notAfter", existingCert.NotAfter)
+				fingerprint, fpErr := certutil.ComputeFingerprint(existingSecret.Data["tls.crt"])
+				if fpErr != nil {
+					return ctrl.Result{}, fpErr
+				}
+				identity.Status.Phase = "Provisioned"
+				identity.Status.AgentID = spiffeID
+				identity.Status.Certificate = &agentv1alpha1.CertificateInfo{
+					SerialNumber: existingCert.SerialNumber.Text(16),
+					NotBefore:    metav1.NewTime(existingCert.NotBefore),
+					NotAfter:     metav1.NewTime(existingCert.NotAfter),
+					Fingerprint:  fingerprint,
+				}
+				meta.SetStatusCondition(&identity.Status.Conditions, metav1.Condition{
+					Type:               conditionCertificateReady,
+					Status:             metav1.ConditionTrue,
+					Reason:             "CertificateIssued",
+					Message:            fmt.Sprintf("X.509 certificate issued and stored in Secret %s-tls", identity.Name),
+					LastTransitionTime: metav1.Now(),
+				})
+				if err := r.Status().Update(ctx, identity); err != nil {
+					return ctrl.Result{}, err
+				}
 				return ctrl.Result{}, nil
+
 			}
 		}
 	} else if !apierrors.IsNotFound(err) {
@@ -150,7 +176,18 @@ func (r *AgentIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	ttl, err := time.ParseDuration(identity.Spec.Identity.TTL)
 	if err != nil {
 		log.Error(err, "Failed to parse TTL", "ttl", identity.Spec.Identity.TTL)
-		return ctrl.Result{}, err
+		identity.Status.Phase = "Error"
+		meta.SetStatusCondition(&identity.Status.Conditions, metav1.Condition{
+			Type:               conditionCertificateReady,
+			Status:             metav1.ConditionFalse,
+			Reason:             "InvalidTTL",
+			Message:            fmt.Sprintf("Failed to parse TTL %q: %v", identity.Spec.Identity.TTL, err),
+			LastTransitionTime: metav1.Now(),
+		})
+		if statusErr := r.Status().Update(ctx, identity); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+		return ctrl.Result{}, nil
 	}
 	bundle, err := certutil.GenerateAgentCertificate(r.CA, spiffeID, ttl)
 	if err != nil {
@@ -179,6 +216,26 @@ func (r *AgentIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	log.Info("Certificate Secret created", "secret", secret.Name)
+
+	identity.Status.Phase = "Provisioned"
+	identity.Status.AgentID = spiffeID
+	identity.Status.Certificate = &agentv1alpha1.CertificateInfo{
+		SerialNumber: bundle.SerialNumber,
+		NotBefore:    metav1.NewTime(bundle.NotBefore),
+		NotAfter:     metav1.NewTime(bundle.NotAfter),
+		Fingerprint:  bundle.Fingerprint,
+	}
+	meta.SetStatusCondition(&identity.Status.Conditions, metav1.Condition{
+		Type:               conditionCertificateReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             "CertificateIssued",
+		Message:            fmt.Sprintf("X.509 certificate issued and stored in Secret %s-tls", identity.Name),
+		LastTransitionTime: metav1.Now(),
+	})
+	if err := r.Status().Update(ctx, identity); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 
 }
