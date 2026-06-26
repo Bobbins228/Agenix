@@ -48,6 +48,7 @@ var _ = Describe("AgentIdentity Controller", func() {
 			missingDeployment = "does-not-exist"
 			recreateName      = "test-recreate"
 			idempotentName    = "test-idempotent"
+			ownerName         = "test-owner"
 		)
 
 		ctx := context.Background()
@@ -103,6 +104,15 @@ var _ = Describe("AgentIdentity Controller", func() {
 				Scheme: k8sClient.Scheme(),
 				CA:     authority,
 			}
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      foundName,
+					Namespace: resourceNamespace,
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Second reconcile: first one only adds finalizer and returns
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      foundName,
@@ -174,6 +184,15 @@ var _ = Describe("AgentIdentity Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
+			// Second reconcile: first one only adds finalizer and returns
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      missingName,
+					Namespace: resourceNamespace,
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
 			updated := &agentv1alpha1.AgentIdentity{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
 				Name:      missingName,
@@ -237,6 +256,15 @@ var _ = Describe("AgentIdentity Controller", func() {
 				CA:     authority,
 			}
 
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      recreateName,
+					Namespace: resourceNamespace,
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Second reconcile: first one only adds finalizer and returns
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      recreateName,
@@ -328,6 +356,15 @@ var _ = Describe("AgentIdentity Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
+			// Second reconcile: first one only adds finalizer and returns
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      idempotentName,
+					Namespace: resourceNamespace,
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
 			updated := &agentv1alpha1.AgentIdentity{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
 				Name:      idempotentName,
@@ -379,7 +416,7 @@ var _ = Describe("AgentIdentity Controller", func() {
 
 			identity := &agentv1alpha1.AgentIdentity{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-owner",
+					Name:      ownerName,
 					Namespace: resourceNamespace,
 				},
 				Spec: agentv1alpha1.AgentIdentitySpec{
@@ -406,7 +443,16 @@ var _ = Describe("AgentIdentity Controller", func() {
 
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Name:      "test-owner",
+					Name:      ownerName,
+					Namespace: resourceNamespace,
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Second reconcile: first one only adds finalizer and returns
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      ownerName,
 					Namespace: resourceNamespace,
 				},
 			})
@@ -414,12 +460,12 @@ var _ = Describe("AgentIdentity Controller", func() {
 
 			secret := &corev1.Secret{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
-				Name:      "test-owner-tls",
+				Name:      ownerName + "-tls",
 				Namespace: resourceNamespace,
 			}, secret)).To(Succeed())
 
 			Expect(secret.OwnerReferences).To(HaveLen(1))
-			Expect(secret.OwnerReferences[0].Name).To(Equal("test-owner"))
+			Expect(secret.OwnerReferences[0].Name).To(Equal(ownerName))
 		})
 	})
 

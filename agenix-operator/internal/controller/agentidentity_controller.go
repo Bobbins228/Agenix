@@ -82,13 +82,14 @@ func (r *AgentIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	// cheking whether the finalizer string already existss on CR
+	// cheking whether the finalizer string already exists on CR
 	// and if it does not, we are adding it to the CR and updating the CR in the cluster
 	if !controllerutil.ContainsFinalizer(identity, agentIdentityFinalizer) {
 		controllerutil.AddFinalizer(identity, agentIdentityFinalizer)
 		if err := r.Update(ctx, identity); err != nil {
 			return ctrl.Result{}, err
 		}
+		return ctrl.Result{}, nil
 	}
 
 	if !identity.DeletionTimestamp.IsZero() {
@@ -278,7 +279,7 @@ func (r *AgentIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 func (r *AgentIdentityReconciler) handleDeletion(ctx context.Context, ai *agentv1alpha1.AgentIdentity) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	// deletting the tls secret
+	// deleting the tls secret
 	secretName, secret := ai.Name+"-tls", &corev1.Secret{}
 	err := r.Get(ctx, types.NamespacedName{Name: secretName, Namespace: ai.Namespace}, secret)
 	if err == nil {
@@ -293,7 +294,7 @@ func (r *AgentIdentityReconciler) handleDeletion(ctx context.Context, ai *agentv
 
 	// if NotFound, owner reference or manual deletion already cleaned it up
 
-	// removing the finilizer
+	// removing the finalizer
 	controllerutil.RemoveFinalizer(ai, agentIdentityFinalizer)
 	if err := r.Update(ctx, ai); err != nil {
 		logger.Error(err, "Failed to remove finalizer from AgentIdentity", "agentidentity", ai.Name)
