@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	agentv1alpha1 "github.com/Bobbins228/Agenix/agenix-operator/api/v1alpha1"
 	"github.com/Bobbins228/Agenix/agenix-operator/internal/ca"
@@ -207,10 +208,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	decoder := admission.NewDecoder(mgr.GetScheme())
+	podMutator := &podmutator.PodMutator{
+		Client: mgr.GetClient(),
+	}
+	podMutator.InjectDecoder(decoder)
+
 	mgr.GetWebhookServer().Register("/mutate-pods", &webhook.Admission{
-		Handler: &podmutator.PodMutator{
-			Client: mgr.GetClient(),
-		},
+		Handler: podMutator,
 	})
 
 	setupLog.Info("Starting manager")
