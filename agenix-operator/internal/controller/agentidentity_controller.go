@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -60,6 +61,7 @@ type AgentIdentityReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	CA     *ca.CA
+	Recorder record.EventRecorder
 }
 
 // helper to sanitize spiffe id for use in labels (replace "://", "/", with "-")
