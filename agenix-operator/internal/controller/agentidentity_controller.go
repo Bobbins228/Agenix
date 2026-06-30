@@ -59,8 +59,8 @@ const agentIdentityFinalizer string = "agenix.io/identity-cleanup"
 // AgentIdentityReconciler reconciles a AgentIdentity object
 type AgentIdentityReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	CA     *ca.CA
+	Scheme   *runtime.Scheme
+	CA       *ca.CA
 	Recorder record.EventRecorder
 }
 
@@ -557,7 +557,7 @@ func (r *AgentIdentityReconciler) removeVerificationLabels(
 	}
 	if err := r.Get(ctx, key, deployment); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil // deployment gone — nothing to clean
+			return nil
 		}
 		return err
 	}

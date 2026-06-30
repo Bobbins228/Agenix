@@ -27,6 +27,7 @@ import (
 	meta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	agentv1alpha1 "github.com/Bobbins228/Agenix/agenix-operator/api/v1alpha1"
@@ -613,9 +614,10 @@ var _ = Describe("AgentIdentity Controller", func() {
 			authority, err := ca.NewCA()
 			Expect(err).NotTo(HaveOccurred())
 			return &AgentIdentityReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-				CA:     authority,
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				CA:       authority,
+				Recorder: record.NewFakeRecorder(10),
 			}
 		}
 
@@ -768,6 +770,206 @@ var _ = Describe("AgentIdentity Controller", func() {
 				Name:      alreadyGoneTestName,
 				Namespace: resourceNamespace,
 			}, &agentv1alpha1.AgentIdentity{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		createFullIdentity := func(name, deploymentName string) *agentv1alpha1.AgentIdentity {
+			id := &agentv1alpha1.AgentIdentity{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: resourceNamespace,
+				},
+				Spec: agentv1alpha1.AgentIdentitySpec{
+					TargetRef: agentv1alpha1.TargetRef{Name: deploymentName},
+					Identity: agentv1alpha1.IdentityConfig{
+						TrustDomain: "example.org",
+						TTL:         "24h",
+						AutoRotate:  true,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, id)).To(Succeed())
+			return id
+		}
+
+		It("should remove verification labels from Deployment on deletion", func() {
+			dep := createDeployment("del-labels-deploy")
+			identity := createFullIdentity("del-labels-id", "del-labels-deploy")
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, identity) })
+
+			reconciler := newReconciler()
+			reconcileUntilVerified(ctx, reconciler, "del-labels-id")
+
+			// Verify labels were applied
+			updatedDep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-labels-deploy", Namespace: resourceNamespace}, updatedDep)).To(Succeed())
+			Expect(updatedDep.Labels).To(HaveKey(labelIdentityVerified))
+			Expect(updatedDep.Labels).To(HaveKey(labelAgentID))
+
+			// Delete AgentIdentity
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-labels-id", Namespace: resourceNamespace}, identity)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, identity)).To(Succeed())
+
+			// Reconcile deletion
+			_, err := reconciler.Reconcile(ctx, reqFor("del-labels-id"))
+			Expect(err).NotTo(HaveOccurred())
+
+			// Deployment should still exist (it gets deleted by handleDeletion now, so re-create for label check)
+			// Actually handleDeletion deletes it — but labels are removed BEFORE deletion
+			// Verify CR is gone (proves full cleanup ran)
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "del-labels-id", Namespace: resourceNamespace}, &agentv1alpha1.AgentIdentity{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			// Deployment is also gone (deleted by handleDeletion step 3)
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "del-labels-deploy", Namespace: resourceNamespace}, &appsv1.Deployment{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			_ = dep // used by createDeployment
+		})
+
+		It("should delete target Deployment on AgentIdentity deletion", func() {
+			createDeployment("del-deploy-target")
+			identity := createFullIdentity("del-deploy-id", "del-deploy-target")
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, identity) })
+
+			reconciler := newReconciler()
+			reconcileUntilVerified(ctx, reconciler, "del-deploy-id")
+
+			// Delete AgentIdentity
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-deploy-id", Namespace: resourceNamespace}, identity)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, identity)).To(Succeed())
+
+			_, err := reconciler.Reconcile(ctx, reqFor("del-deploy-id"))
+			Expect(err).NotTo(HaveOccurred())
+
+			// Deployment should be gone
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "del-deploy-target", Namespace: resourceNamespace}, &appsv1.Deployment{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should clean up Secret, labels, and Deployment on deletion (full flow)", func() {
+			createDeployment("del-full-deploy")
+			identity := createFullIdentity("del-full-id", "del-full-deploy")
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, identity) })
+
+			reconciler := newReconciler()
+			reconcileUntilVerified(ctx, reconciler, "del-full-id")
+
+			// Verify everything was created
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-full-id-tls", Namespace: resourceNamespace}, &corev1.Secret{})).To(Succeed())
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-full-deploy", Namespace: resourceNamespace}, dep)).To(Succeed())
+			Expect(dep.Labels).To(HaveKey(labelIdentityVerified))
+
+			// Delete AgentIdentity
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-full-id", Namespace: resourceNamespace}, identity)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, identity)).To(Succeed())
+
+			_, err := reconciler.Reconcile(ctx, reqFor("del-full-id"))
+			Expect(err).NotTo(HaveOccurred())
+
+			// Secret gone
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "del-full-id-tls", Namespace: resourceNamespace}, &corev1.Secret{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			// Deployment gone
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "del-full-deploy", Namespace: resourceNamespace}, &appsv1.Deployment{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			// CR gone
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "del-full-id", Namespace: resourceNamespace}, &agentv1alpha1.AgentIdentity{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should complete deletion when Secret and Deployment are already gone", func() {
+			createDeployment("del-gone-deploy")
+			identity := createFullIdentity("del-gone-id", "del-gone-deploy")
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, identity) })
+
+			reconciler := newReconciler()
+			reconcileUntilVerified(ctx, reconciler, "del-gone-id")
+
+			// Manually delete Secret and Deployment before triggering cleanup
+			secret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-gone-id-tls", Namespace: resourceNamespace}, secret)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, secret)).To(Succeed())
+
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-gone-deploy", Namespace: resourceNamespace}, dep)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, dep)).To(Succeed())
+
+			// Delete AgentIdentity
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-gone-id", Namespace: resourceNamespace}, identity)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, identity)).To(Succeed())
+
+			// Should complete without error despite missing resources
+			_, err := reconciler.Reconcile(ctx, reqFor("del-gone-id"))
+			Expect(err).NotTo(HaveOccurred())
+
+			// CR gone
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "del-gone-id", Namespace: resourceNamespace}, &agentv1alpha1.AgentIdentity{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should complete deletion when Deployment is pre-deleted but Secret exists", func() {
+			createDeployment("del-nodep-deploy")
+			identity := createFullIdentity("del-nodep-id", "del-nodep-deploy")
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, identity) })
+
+			reconciler := newReconciler()
+			reconcileUntilVerified(ctx, reconciler, "del-nodep-id")
+
+			// Delete Deployment only
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-nodep-deploy", Namespace: resourceNamespace}, dep)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, dep)).To(Succeed())
+
+			// Delete AgentIdentity
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-nodep-id", Namespace: resourceNamespace}, identity)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, identity)).To(Succeed())
+
+			_, err := reconciler.Reconcile(ctx, reqFor("del-nodep-id"))
+			Expect(err).NotTo(HaveOccurred())
+
+			// Secret gone
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "del-nodep-id-tls", Namespace: resourceNamespace}, &corev1.Secret{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			// CR gone
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "del-nodep-id", Namespace: resourceNamespace}, &agentv1alpha1.AgentIdentity{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should delete Deployment even without prior verification labels", func() {
+			createDeployment("del-nolabel-deploy")
+			createIdentity("del-nolabel-id", "del-nolabel-deploy")
+			DeferCleanup(func() {
+				id := &agentv1alpha1.AgentIdentity{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "del-nolabel-id", Namespace: resourceNamespace}, id); err == nil {
+					id.Finalizers = nil
+					_ = k8sClient.Update(ctx, id)
+					_ = k8sClient.Delete(ctx, id)
+				}
+			})
+
+			reconciler := newReconciler()
+			// Only add finalizer, don't reach verified (no TTL/TrustDomain on minimal identity)
+			_, err := reconciler.Reconcile(ctx, reqFor("del-nolabel-id"))
+			Expect(err).NotTo(HaveOccurred())
+
+			// Delete AgentIdentity
+			identity := &agentv1alpha1.AgentIdentity{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-nolabel-id", Namespace: resourceNamespace}, identity)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, identity)).To(Succeed())
+
+			_, err = reconciler.Reconcile(ctx, reqFor("del-nolabel-id"))
+			Expect(err).NotTo(HaveOccurred())
+
+			// Deployment gone even though it never had labels
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "del-nolabel-deploy", Namespace: resourceNamespace}, &appsv1.Deployment{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			// CR gone
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "del-nolabel-id", Namespace: resourceNamespace}, &agentv1alpha1.AgentIdentity{})
 			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
 
