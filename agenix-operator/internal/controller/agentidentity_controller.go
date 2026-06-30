@@ -397,6 +397,14 @@ func (r *AgentIdentityReconciler) verifyAndUpdateStatus(
 
 	result, err := verify.ValidateIdentity(certPEM, caCertPEM, expectedSPIFFEID)
 	if err != nil {
+		reason := "ChainValidationFailed"
+		if result != nil && result.ChainValid && !result.SPIFFEIDMatch {
+			reason = "SPIFFEIDMismatch"
+		}
+		if result == nil {
+			reason = "CertificateParseFailed"
+		}
+
 		logger.Error(err, "Certificate verification failed")
 		identity.Status.Phase = phaseError
 		identity.Status.AgentID = expectedSPIFFEID
@@ -405,7 +413,7 @@ func (r *AgentIdentityReconciler) verifyAndUpdateStatus(
 			&identity.Status.Conditions,
 			conditionIdentityVerified,
 			metav1.ConditionFalse,
-			"ChainValidationFailed",
+			reason,
 			err.Error(),
 		)
 		if statusErr := r.Status().Update(ctx, identity); statusErr != nil {
