@@ -546,10 +546,10 @@ func (r *AgentIdentityReconciler) applyVerificationLabels(
 }
 
 // helper to remove labels
-func (r *AgentIdentityReconciler) removeVerificationLabels(
+func (r *AgentIdentityReconciler) getTargetDeployment(
 	ctx context.Context,
 	identity *agentv1alpha1.AgentIdentity,
-) error {
+) (*appsv1.Deployment, error) {
 	deployment := &appsv1.Deployment{}
 	key := types.NamespacedName{
 		Name:      identity.Spec.TargetRef.Name,
@@ -557,9 +557,23 @@ func (r *AgentIdentityReconciler) removeVerificationLabels(
 	}
 	if err := r.Get(ctx, key, deployment); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil
+			return nil, nil
 		}
+		return nil, err
+	}
+	return deployment, nil
+}
+
+func (r *AgentIdentityReconciler) removeVerificationLabels(
+	ctx context.Context,
+	identity *agentv1alpha1.AgentIdentity,
+) error {
+	deployment, err := r.getTargetDeployment(ctx, identity)
+	if err != nil {
 		return err
+	}
+	if deployment == nil {
+		return nil
 	}
 
 	if deployment.Labels == nil {
@@ -587,21 +601,20 @@ func (r *AgentIdentityReconciler) deleteTargetDeployment(
 	identity *agentv1alpha1.AgentIdentity,
 ) error {
 	logger := log.FromContext(ctx)
-	deployment := &appsv1.Deployment{}
-	key := types.NamespacedName{
-		Name:      identity.Spec.TargetRef.Name,
-		Namespace: identity.Namespace,
+	deployment, err := r.getTargetDeployment(ctx, identity)
+	if err != nil {
+		return err
 	}
-	if err := r.Get(ctx, key, deployment); err != nil {
+	if deployment == nil {
+		return nil
+	}
+	if err := r.Delete(ctx, deployment); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
 		}
 		return err
 	}
-	if err := r.Delete(ctx, deployment); err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	logger.Info("Deleted target Deployment", "deployment", key.Name)
+	logger.Info("Deleted target Deployment", "deployment", deployment.Name)
 	return nil
 }
 
