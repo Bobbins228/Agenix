@@ -38,6 +38,13 @@ kubectl wait --for=jsonpath='{.status.phase}'=Verified agentidentity/weather-age
 kubectl rollout status deployment/weather-agent --timeout=120s
 ```
 
+Or run the full identity demo (operator must already be deployed):
+
+```bash
+./scripts/demo.sh          # apply, wait, verify
+./scripts/demo.sh --reset  # cleanup samples, then run demo again
+```
+
 ### Uninstall
 
 ```bash
